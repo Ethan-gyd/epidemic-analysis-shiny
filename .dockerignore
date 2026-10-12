@@ -1,0 +1,14 @@
+# 严格白名单构建上下文，禁止原始监测文件进入镜像。
+**
+!Dockerfile
+!app.R
+!data_preprocessing.R
+!outbreak_detection.R
+!report_generation.R
+!report_analysis.R
+!report_module.R
+!disease_dictionary.csv
+!scripts/
+!scripts/install_dependencies.R
+!data/
+!data/demo_surveillance.csv

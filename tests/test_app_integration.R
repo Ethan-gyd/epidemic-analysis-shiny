@@ -8,6 +8,31 @@ shiny::testServer(app_server, {
   stopifnot(all(filtered_data()$筛选日期 >= as.Date("2026-10-01")))
   session$setInputs(global_management = character())
   stopifnot(nrow(scope_data()) == 0L, nrow(filtered_data()) == 0L)
+  # Shiny stores uploads without the original filename extension.
+  excel_upload <- tempfile(pattern = "synthetic_population_upload_")
+  stopifnot(file.copy("data/population_template.xlsx", excel_upload))
+  session$setInputs(population_upload = data.frame(
+    name = "synthetic_population.xlsx", size = file.info(excel_upload)$size,
+    type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", datapath = excel_upload
+  ))
+  stopifnot(is.null(active_population_state$last_error))
+  stopifnot(active_population_state$source_label == "synthetic_population.xlsx")
+  stopifnot(nrow(active_population_state$data) == 3L)
+  stopifnot(sum(active_population_state$data$人口数) == 3000000)
+  previous_population <- active_population_state$data
+  # Conflicting denominators must be rejected without changing active parameters.
+  conflict_upload <- tempfile(pattern = "synthetic_population_conflict_")
+  readr::write_csv(data.frame(地区名称 = c("五华区", "五华区"),
+                              人口数 = c(1000000, 1100000), PAC = c("530102", "530102")), conflict_upload)
+  session$setInputs(population_upload = data.frame(
+    name = "conflicting_population.csv", size = file.info(conflict_upload)$size,
+    type = "text/csv", datapath = conflict_upload
+  ))
+  stopifnot(!is.null(active_population_state$last_error))
+  stopifnot(grepl("五华区", active_population_state$last_error, fixed = TRUE))
+  stopifnot(identical(active_population_state$data, previous_population))
+  stopifnot(active_population_state$source_label == "synthetic_population.xlsx")
+  unlink(c(excel_upload, conflict_upload))
 })
 demo <- match_surveillance_to_population(default_surveillance_data, default_population_data)
 shiny::testServer(reports_server, args = list(

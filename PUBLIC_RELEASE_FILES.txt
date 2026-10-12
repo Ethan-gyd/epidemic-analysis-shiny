@@ -1,5 +1,5 @@
-公开材料文件清单（精确白名单；病例数据为合成样本）
-生成日期：2026-10-09
+公开材料文件清单（精确白名单；病例及人口模板中的人口数为合成示例）
+生成日期：2026-10-12
 
 .dockerignore
 .github/ISSUE_TEMPLATE/bug_report.yml
@@ -10,6 +10,8 @@ app.R
 CONTRIBUTING.md
 data_preprocessing.R
 data/demo_surveillance.csv
+data/population_template.csv
+data/population_template.xlsx
 disease_dictionary.csv
 Dockerfile
 docs/DEPLOYMENT.md
@@ -25,8 +27,10 @@ scripts/make_demo_data.R
 scripts/prepare_public_release.R
 tests/test_app_integration.R
 tests/test_detection.R
+tests/test_population_upload.R
 tests/test_report_analysis.R
 tests/test_reports.R
 
-未包含真实病例、卡片明细、人口上传文件、PPT、报告、地图或备份。
+包含可上传的 CSV / Excel 人口格式模板；示例人口数不是实际人口。
+未包含真实病例、卡片明细、实际业务人口上传文件、PPT、报告、地图或备份。
 未执行 Git 初始化、创建远端仓库或网络发布。

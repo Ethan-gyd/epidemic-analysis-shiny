@@ -521,10 +521,13 @@ make_admin_aliases <- function(name, pattern = NULL) {
 }
 
 parse_population_value <- function(x) {
-  x <- normalize_text(as.character(x))
-  number_value <- suppressWarnings(as.numeric(str_replace_all(x, "[,，\\s人]", "")))
-
-  if_else(str_detect(x, "万"), number_value * 10000, number_value)
+  x <- normalize_text(as.character(x)) %>% str_replace_all("[,，\\s]", "")
+  parts <- str_match(x, "^([+-]?(?:[0-9]+\\.?[0-9]*|\\.[0-9]+)(?:[eE][+-]?[0-9]+)?)(万人?|人)?$")
+  number_value <- suppressWarnings(as.numeric(parts[, 2]))
+  multiplier <- if_else(!is.na(parts[, 3]) & str_detect(parts[, 3], "万"), 10000, 1)
+  value <- number_value * multiplier
+  value[!is.finite(value)] <- NA_real_
+  value
 }
 
 detect_population_name_column <- function(data) {
@@ -570,15 +573,19 @@ detect_population_value_column <- function(data) {
   names(data)[which.max(numeric_score)]
 }
 
-read_population_file <- function(file_path) {
-  extension <- tolower(tools::file_ext(file_path))
+read_population_file <- function(file_path, file_name = basename(file_path)) {
+  if (length(file_name) != 1L || is.na(file_name) || !nzchar(file_name)) {
+    stop("请提供人口上传文件的原始文件名。", call. = FALSE)
+  }
+  extension <- tolower(tools::file_ext(file_name))
 
   if (extension %in% c("xlsx", "xls")) {
     if (!requireNamespace("readxl", quietly = TRUE)) {
       stop("读取 Excel 人口参数需要安装 readxl 包。")
     }
 
-    readxl::read_excel(file_path, .name_repair = "unique") %>%
+    reader <- if (extension == "xlsx") readxl::read_xlsx else readxl::read_xls
+    reader(file_path, .name_repair = "unique") %>%
       as_tibble()
   } else {
     encoding_guess <- tryCatch(
@@ -680,14 +687,25 @@ normalize_population_data <- function(data, source_label = "人口参数") {
       省名称 = if ("ShengName" %in% names(data)) normalize_text(as.character(.data$ShengName)) else NA_character_,
       市名称 = if ("ShiName" %in% names(data)) normalize_text(as.character(.data$ShiName)) else NA_character_
     ) %>%
-    filter(!is.na(.data$地区名称), .data$地区名称 != "", !is.na(.data$人口数), .data$人口数 > 0) %>%
+    filter(!is.na(.data$地区名称), .data$地区名称 != "", is.finite(.data$人口数), .data$人口数 > 0)
+
+  conflicts <- population %>%
+    group_by(.data$地区名称, .data$PAC, .data$PAC6) %>%
+    summarise(人口值数量 = n_distinct(.data$人口数), .groups = "drop") %>%
+    filter(.data$人口值数量 > 1L)
+  if (nrow(conflicts) > 0L) {
+    stop(paste0("人口参数存在重复地区且人口数不一致：", paste(unique(conflicts$地区名称), collapse = "、"),
+      "。同一地区和行政区划代码只能保留一个人口数，请核实年份与人口口径后重新上传。"), call. = FALSE)
+  }
+
+  population <- population %>%
     group_by(.data$地区名称, .data$PAC, .data$PAC6) %>%
     summarise(
       地区原名 = first(.data$地区原名),
       匹配模式 = paste(unique(na.omit(.data$匹配模式)), collapse = "|"),
       省名称 = first(na.omit(.data$省名称), default = NA_character_),
       市名称 = first(na.omit(.data$市名称), default = NA_character_),
-      人口数 = sum(.data$人口数, na.rm = TRUE),
+      人口数 = first(.data$人口数),
       .groups = "drop"
     )
 
@@ -710,8 +728,8 @@ normalize_population_data <- function(data, source_label = "人口参数") {
     arrange(desc(.data$是否汇总行), .data$地区名称)
 }
 
-load_population_data <- function(file_path, source_label = basename(file_path)) {
-  read_population_file(file_path) %>%
+load_population_data <- function(file_path, source_label = basename(file_path), file_name = basename(file_path)) {
+  read_population_file(file_path, file_name = file_name) %>%
     normalize_population_data(source_label = source_label)
 }
 
@@ -764,10 +782,13 @@ match_surveillance_to_population <- function(data, population_data) {
   }
 
   address_pac6 <- if ("现住地址国标" %in% names(data)) make_pac6(data$现住地址国标) else rep(NA_character_, nrow(data))
-  matched_by_pac <- if ("PAC6" %in% names(units) && any(!is.na(units$PAC6))) {
-    units$地区名称[match(address_pac6, units$PAC6)]
-  } else {
-    rep(NA_character_, nrow(data))
+  matched_by_pac <- rep(NA_character_, nrow(data))
+  if ("PAC6" %in% names(units)) {
+    valid_units <- !is.na(units$PAC6) & nzchar(units$PAC6)
+    valid_addresses <- !is.na(address_pac6) & nzchar(address_pac6)
+    matched_by_pac[valid_addresses] <- units$地区名称[valid_units][
+      match(address_pac6[valid_addresses], units$PAC6[valid_units])
+    ]
   }
   matched_area <- extract_area_from_address(data$现住详细地址, units)
   existing_area <- if ("区县" %in% names(data)) data$区县 else rep(NA_character_, nrow(data))
